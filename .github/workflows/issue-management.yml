@@ -5,7 +5,7 @@ on:
 
 jobs:
   handle-issue:
-    if: github.event_name == 'issues'
+    if: github.event_name == 'issues' || github.event_name == 'workflow_call'
     runs-on: ubuntu-latest
     permissions:
       issues: write
