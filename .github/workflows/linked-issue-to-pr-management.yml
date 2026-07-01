@@ -163,7 +163,7 @@ jobs:
               }
 
               // PR creator is assigned to the issue - assign reviewers
-              const reviewers = ['tejugang'];
+              const reviewers = ['sanjanakam'];
 
               await github.rest.pulls.requestReviewers({
                 owner: context.repo.owner,
