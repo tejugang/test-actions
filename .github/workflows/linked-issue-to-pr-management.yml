@@ -107,6 +107,13 @@ jobs:
             const linkedIssueCount = parseInt(process.env.LINKED_ISSUES_COUNT || '0');
             const issuesOutput = process.env.ISSUES_OUTPUT || '[]';
 
+             // Debug logging
+            console.log('=== DEBUG START ===');
+            console.log(`Linked issues count: ${linkedIssueCount}`);
+            console.log(`Issues output (raw): ${issuesOutput}`);
+            console.log(`Issues output type: ${typeof issuesOutput}`);
+            console.log('=== DEBUG END ===');
+
             if (linkedIssueCount === 0) {
               const comment = `Thanks for your contribution! This PR does not appear to have a linked issue. Please refer to our [contribution guidelines](CONTRIBUTING.md) for the proper PR process.`;
 
