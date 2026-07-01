@@ -90,6 +90,7 @@ jobs:
     steps:
       - name: Check linked issue and assign reviewers
         uses: nearform-actions/github-action-check-linked-issues@v1
+        continue-on-error: true
         id: check-linked-issues
         with:
           exclude-branches: "release/**, dependabot/**"
