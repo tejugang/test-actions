@@ -175,8 +175,12 @@ jobs:
 
             } catch (error) {
               console.error(`Error checking issue #${issueNumber}:`, error);
+              console.error(`Error details - Status: ${error.status}, Message: ${error.message}`);                                       
+              console.error(`Parsed issue number: ${issueNumber}, Type: ${typeof issueNumber}`);                                         
+              console.error(`Issues output: ${issuesOutput}`);                                                                           
+              console.error(`Linked issue count: ${linkedIssueCount}`);
 
-              const comment = `Unable to verify the linked issue #${issueNumber}. Please ensure the issue exists and is properly configured.`;
+              const comment = `Unable to verify the linked issue #${issueNumber}. Please ensure the issue exists and is properly configured. Debug info: Error status ${error.status || 'unknown'}, message: ${error.message}`; 
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
