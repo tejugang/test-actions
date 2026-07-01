@@ -137,7 +137,7 @@ jobs:
 
             // Extract issue number - handle both #123 and 123 formats
             const issueRef = issues[0];
-            const issueNumber = parseInt(issueRef.replace('#', ''));
+            const issueNumber = parseInt(issues[0].split('#')[1]);
 
             try {
               const { data: issue } = await github.rest.issues.get({
