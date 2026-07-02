@@ -171,6 +171,15 @@ jobs:
                 pull_number: pr.number,
                 reviewers: reviewers
               });
+
+              const comment = `Thanks for your contribution! A reviewer has been assigned to review your PR.`;
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: comment
+                });
               console.log(`Assigned reviewers: ${reviewers.join(', ')}`);
 
             } catch (error) {
