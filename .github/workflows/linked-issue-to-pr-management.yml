@@ -8,9 +8,6 @@ jobs:
   handle-issue:
     if: github.event_name == 'issues' 
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      contents: read
 
     steps:
       - name: Request issue approval and assignment
@@ -83,9 +80,6 @@ jobs:
     if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
     name: Check linked issue
-    permissions:
-      pull-requests: write
-      issues: read
 
     steps:
       - name: Check linked issue and assign reviewers
