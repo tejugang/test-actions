@@ -51,6 +51,28 @@ jobs:
                 console.log(`Label ${context.payload.label.name} added - no action needed`);
                 return;
               }
+                          const MAINTAINERS = ['sanjanakam'];
+              const actor = context.actor;
+
+              if (!MAINTAINERS.includes(actor)) {
+                console.log(`${actor} is not a maintainer - removing 'triage/accepted' label`);
+
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  name: 'triage/accepted'
+                });
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `@${actor} only maintainers can apply the \`triage/accepted\` label. This label has been removed.`
+                });
+
+                return;
+              }
               
               // Remove needs-triage
               try {
