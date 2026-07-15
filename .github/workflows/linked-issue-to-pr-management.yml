@@ -168,7 +168,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number,
-                team_reviewers: [process.env.REVIEWERS]
+                team_reviewers: @sanjanakam
               });
              
               const comment = `Thanks for your contribution! A reviewer has been assigned to review your PR.`;
