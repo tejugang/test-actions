@@ -1,4 +1,3 @@
-
 name: Linked issue to PR Management
 
 on:
@@ -31,7 +30,7 @@ jobs:
               });
 
               // Post comment and tag the reviewers
-              const reviewers = `@${context.repo.owner}/${process.env.REVIEWERS}`;
+              const reviewers = `@sanjanakam`;
 
               const comment = `Thanks for opening this issue! A maintainer will review it shortly. Please wait for approval before starting work on a PR. See our [contributing guidelines](https://krkn-chaos.dev/docs/contribution-guidelines/) for more details. \n\nCC: ${reviewers}`;
               
@@ -51,29 +50,7 @@ jobs:
                 console.log(`Label ${context.payload.label.name} added - no action needed`);
                 return;
               }
-                          const MAINTAINERS = ['sanjanakam'];
-              const actor = context.actor;
-
-              if (!MAINTAINERS.includes(actor)) {
-                console.log(`${actor} is not a maintainer - removing 'triage/accepted' label`);
-
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  name: 'triage/accepted'
-                });
-
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  body: `@${actor} only maintainers can apply the \`triage/accepted\` label. This label has been removed.`
-                });
-
-                return;
-              }
-              
+                         
               // Remove needs-triage
               try {
                 await github.rest.issues.removeLabel({
@@ -110,11 +87,13 @@ jobs:
         id: check-linked-issues
         with:
           exclude-branches: "release/**, dependabot/**"
+          comment: false
       - name: Assign reviewers based on linked issue
         uses: actions/github-script@v7
         env:
           LINKED_ISSUES_COUNT: ${{ steps.check-linked-issues.outputs.linked_issues_count }}
           ISSUES_OUTPUT: ${{ steps.check-linked-issues.outputs.issues }}
+          REVIEWERS: "krkn-maintainers"
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -122,13 +101,6 @@ jobs:
 
             const linkedIssueCount = parseInt(process.env.LINKED_ISSUES_COUNT || '0');
             const issuesOutput = process.env.ISSUES_OUTPUT || '[]';
-
-             // Debug logging
-            console.log('=== DEBUG START ===');
-            console.log(`Linked issues count: ${linkedIssueCount}`);
-            console.log(`Issues output (raw): ${issuesOutput}`);
-            console.log(`Issues output type: ${typeof issuesOutput}`);
-            console.log('=== DEBUG END ===');
 
             if (linkedIssueCount === 0) {
               const comment = `Thanks for your contribution! This PR does not appear to have a linked issue. Please refer to our [contribution guidelines](CONTRIBUTING.md) for the proper PR process.`;
@@ -143,16 +115,28 @@ jobs:
               console.log('No linked issue found - posted comment');
               return;
             }
-                       // Check the first linked issue
-            const issues = JSON.parse(issuesOutput);
+            // Check the first linked issue
+            let issues;
+            try {
+              issues = JSON.parse(issuesOutput);
+            } catch (e) {
+              console.error(`Failed to parse linked issues output: ${e.message}`);
+              const comment = `Unable to determine linked issues for this PR.`;
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: comment
+              });
+              return;
+            }
 
             if (!issues || issues.length === 0) {
               console.log('No issues in output despite count > 0');
               return;
             }
 
-            // Extract issue number - handle both #123 and 123 formats
-            const issueRef = issues[0];
+            // Extract issue number - handles #123 format
             const issueNumber = parseInt(issues[0].split('#')[1]);
 
             try {
@@ -179,15 +163,14 @@ jobs:
               }
 
               // PR creator is assigned to the issue - assign reviewers
-              const reviewers = ['sanjanakam'];
 
               await github.rest.pulls.requestReviewers({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number,
-                reviewers: reviewers
+                team_reviewers: [process.env.REVIEWERS]
               });
-
+             
               const comment = `Thanks for your contribution! A reviewer has been assigned to review your PR.`;
 
                 await github.rest.issues.createComment({
@@ -196,16 +179,12 @@ jobs:
                   issue_number: pr.number,
                   body: comment
                 });
-              console.log(`Assigned reviewers: ${reviewers.join(', ')}`);
+              console.log(`Assigned reviewers: ${process.env.REVIEWERS}`);
 
             } catch (error) {
               console.error(`Error checking issue #${issueNumber}:`, error);
-              console.error(`Error details - Status: ${error.status}, Message: ${error.message}`);                                       
-              console.error(`Parsed issue number: ${issueNumber}, Type: ${typeof issueNumber}`);                                         
-              console.error(`Issues output: ${issuesOutput}`);                                                                           
-              console.error(`Linked issue count: ${linkedIssueCount}`);
 
-              const comment = `Unable to verify the linked issue #${issueNumber}. Please ensure the issue exists and is properly configured. Debug info: Error status ${error.status || 'unknown'}, message: ${error.message}`; 
+              const comment = `Unable to verify the linked issue #${issueNumber}. Please ensure the issue exists and is properly configured.`;
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
