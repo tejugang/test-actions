@@ -93,7 +93,7 @@ jobs:
         env:
           LINKED_ISSUES_COUNT: ${{ steps.check-linked-issues.outputs.linked_issues_count }}
           ISSUES_OUTPUT: ${{ steps.check-linked-issues.outputs.issues }}
-          REVIEWERS: "krkn-maintainers"
+          REVIEWERS: "sanjanakam"
         with:
           script: |
             const pr = context.payload.pull_request;
