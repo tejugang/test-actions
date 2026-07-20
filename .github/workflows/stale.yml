@@ -1,7 +1,6 @@
 name: Close inactive issues and pull requests
 on:
   workflow_call:
-  workflow_dispatch: 
 
 jobs:
   close-issue:
