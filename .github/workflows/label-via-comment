@@ -1,0 +1,46 @@
+name: Label via slash comment
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  add-label:
+    if: startsWith(github.event.comment.body, '/') && !contains(github.event.comment.body, ' ')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Verify maintainer and add label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim();
+            const label = body.slice(1); // strip leading '/'
+
+            const perms = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login
+            });
+            if (!['admin', 'write'].includes(perms.data.permission)) {
+              core.setFailed('Only maintainers can apply labels this way');
+              return;
+            }
+
+            // optional: only allow labels that already exist on the repo
+            const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            if (!repoLabels.some(l => l.name === label)) {
+              core.setFailed(`Label "${label}" does not exist on this repo`);
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: [label]
+            });
