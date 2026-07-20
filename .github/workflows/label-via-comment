@@ -17,27 +17,6 @@ jobs:
             const body = context.payload.comment.body.trim();
             const label = body.slice(1); // strip leading '/'
 
-            const perms = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.payload.comment.user.login
-            });
-            if (!['admin', 'write'].includes(perms.data.permission)) {
-              core.setFailed('Only maintainers can apply labels this way');
-              return;
-            }
-
-            // optional: only allow labels that already exist on the repo
-            const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              per_page: 100
-            });
-            if (!repoLabels.some(l => l.name === label)) {
-              core.setFailed(`Label "${label}" does not exist on this repo`);
-              return;
-            }
-
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
