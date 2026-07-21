@@ -61,6 +61,26 @@ jobs:
                 labels: [label],
               });
               console.log(`Added label "${label}"`);
+
+              // Remove needs-triage when triage/accepted is added
+              if (label.toLowerCase() === 'triage/accepted') {
+                const issueLabels = await github.rest.issues.listLabelsOnIssue({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                });
+                const hasNeedsTriage = issueLabels.data.some(l => l.name.toLowerCase() === 'needs-triage');
+                if (hasNeedsTriage) {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    name: 'needs-triage',
+                  });
+                  console.log('Removed label "needs-triage"');
+                }
+              }
             } catch (err) {
               core.setFailed(`Failed to process label command: ${err.message}`);
             }
+
