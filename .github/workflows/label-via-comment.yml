@@ -25,9 +25,15 @@ jobs:
                 username: context.payload.comment.user.login,
               });
 
+              // Only collaborators with write or admin access can add labels
               const allowed = ['admin', 'write'];
               if (!allowed.includes(permLevel.permission)) {
-                console.log(`User ${context.payload.comment.user.login} has "${permLevel.permission}" — skipping`);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: `@${context.payload.comment.user.login} You do not have sufficient permissions to add labels.`,
+                });
                 return;
               }
 
@@ -37,8 +43,14 @@ jobs:
               });
               const exists = repoLabels.some(l => l.name.toLowerCase() === label.toLowerCase());
 
+              // Only allow labels that already exist in the repo
               if (!exists) {
-                console.log(`Label "${label}" does not exist in the repo — skipping`);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: `@${context.payload.comment.user.login} Label \`${label}\` does not exist in this repo.`,
+                });
                 return;
               }
 
