@@ -19,15 +19,21 @@ jobs:
 
               if (!label) return;
 
-              const { data: permLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: context.payload.comment.user.login,
-              });
+              let permission = 'none';
+              try {
+                const { data: permLevel } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: context.payload.comment.user.login,
+                });
+                permission = permLevel.permission;
+              } catch (error) {
+                console.log(`Could not fetch permission level: ${error.message}`);
+                // permission stays 'none' — fail closed, not open
+              }
 
-              // Only collaborators with write or admin access can add labels
               const allowed = ['admin', 'write'];
-              if (!allowed.includes(permLevel.permission)) {
+              if (!allowed.includes(permission)) {
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -83,4 +89,3 @@ jobs:
             } catch (err) {
               core.setFailed(`Failed to process label command: ${err.message}`);
             }
-
