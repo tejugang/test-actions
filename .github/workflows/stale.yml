@@ -57,7 +57,7 @@ jobs:
             
                   if (daysSinceLabel >= fourteen_days) {
                     console.log(`Issue #${issue.number} needs triage for ${daysSinceLabel.toFixed(4)} days`);
-                    const comment = `Apologies on the delay! There are many issues awaiting triage. This issue has been waiting for ${Math.floor(daysSinceLabel)} days. Can maintainers please review this issue at their convenience? \n\nCC: ${reviewers}`;
+                    const comment = `Apologies on the delay! There are many issues awaiting triage. This issue has been waiting for ${Math.floor(daysSinceLabel)} days. Can maintainers please review this issue at their convenience? `;
                     
                     await github.rest.issues.createComment({
                       owner: context.repo.owner,
