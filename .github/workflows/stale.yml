@@ -29,81 +29,86 @@ jobs:
             console.log(`Found ${issues.length} open issues to check`);
 
             for (const issue of issues) {
-                if (issue.pull_request) {
-                  console.log(`Skipping PR #${issue.number}`);
-                  continue;
-                }
-
-                // Timeline events for an issue
-                const {data: timelineEvents} = await github.rest.issues.listEventsForTimeline({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issue.number,
-                    per_page: 100
-                });
-
-                // Check for needs-triage label
-                const needsTriageEvent = timelineEvents.find(event =>
-                  event.event === 'labeled' && event.label?.name === 'needs-triage'
-                );
-
+              if (issue.pull_request) continue;
+            
+              // 1. Check CURRENT active labels on the issue
+              const currentLabels = issue.labels.map(l => l.name);
+              const hasNeedsTriage = currentLabels.includes('needs-triage');
+              const hasTriageAccepted = currentLabels.includes('triage/accepted');
+            
+              // Fetch timeline events for event timestamps
+              const {data: timelineEvents} = await github.rest.issues.listEventsForTimeline({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                per_page: 100
+              });
+            
+              // --- CASE 1: Issue CURRENTLY needs triage ---
+              if (hasNeedsTriage) {
+                // Get the MOST RECENT time 'needs-triage' was added
+                const needsTriageEvent = timelineEvents
+                  .filter(e => e.event === 'labeled' && e.label?.name === 'needs-triage')
+                  .pop();
+            
                 if (needsTriageEvent) {
-                    const labelAddedAt = new Date(needsTriageEvent.created_at);
-                    const daysSinceLabel = (Date.now() - labelAddedAt) / (24 * 60 * 60 * 1000);
-
-                    if (daysSinceLabel >= fourteen_days) {
-                        console.log(`Issue #${issue.number} needs triage for ${daysSinceLabel.toFixed(4)} days`);
-
-                        const comment = `Apologies on the delay! There are many issues awaiting triage. This issue has been waiting for ${Math.floor(daysSinceLabel)} days. Can maintainers please review this issue at their convenience? \n\nCC: ${reviewers}`;
-                        await github.rest.issues.createComment({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            issue_number: issue.number,
-                            body: comment
-                        });
-                    }
+                  const labelAddedAt = new Date(needsTriageEvent.created_at);
+                  const daysSinceLabel = (Date.now() - labelAddedAt) / (24 * 60 * 60 * 1000);
+            
+                  if (daysSinceLabel >= fourteen_days) {
+                    console.log(`Issue #${issue.number} needs triage for ${daysSinceLabel.toFixed(4)} days`);
+                    const comment = `Apologies on the delay! There are many issues awaiting triage. This issue has been waiting for ${Math.floor(daysSinceLabel)} days. Can maintainers please review this issue at their convenience? \n\nCC: ${reviewers}`;
+                    
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      body: comment
+                    });
+                  }
                 }
-
-                // Check for triage/accepted label
-                const triageAcceptedEvent = timelineEvents.find(event =>
-                  event.event === 'labeled' && event.label?.name === 'triage/accepted'
-                );
-
+              } 
+              // --- CASE 2: Issue is CURRENTLY accepted ---
+              else if (hasTriageAccepted) {
+                // Get the MOST RECENT time 'triage/accepted' was added
+                const triageAcceptedEvent = timelineEvents
+                  .filter(e => e.event === 'labeled' && e.label?.name === 'triage/accepted')
+                  .pop();
+            
                 if (triageAcceptedEvent) {
-                    const labelAddedAt = new Date(triageAcceptedEvent.created_at);
-                    const daysSinceLabel = (Date.now() - labelAddedAt) / (24 * 60 * 60 * 1000);
-
-                    if (daysSinceLabel >= thirty_days) {
-                        // Check if a PR is already linked by looking for references in timeline
-                        const prReferences = timelineEvents.filter(event =>
-                          event.event === 'cross-referenced' &&
-                          event.source?.issue?.pull_request
-                        );
-
-                        if (prReferences.length > 0) {
-                          console.log(`Issue #${issue.number} has linked PR, skipping reminder`);
-                          continue;
-                        }
-
-                        console.log(`Issue #${issue.number} accepted for ${daysSinceLabel.toFixed(4)} days, no PR linked - closing`);
-
-                        const assignee = issue.assignee ? `@${issue.assignee.login}` : 'the assignee';
-                        const comment = `Closing this issue: it was accepted ${Math.floor(daysSinceLabel)} days ago with no linked PR. Feel free to reopen if you're ready to pick this back up! \n\nCC: ${assignee}`;
-
-                        await github.rest.issues.createComment({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            issue_number: issue.number,
-                            body: comment
-                        });
-
-                        // NEW: actually close the issue
-                        await github.rest.issues.update({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            issue_number: issue.number,
-                            state: 'closed'
-                        });
+                  const labelAddedAt = new Date(triageAcceptedEvent.created_at);
+                  const daysSinceLabel = (Date.now() - labelAddedAt) / (24 * 60 * 60 * 1000);
+            
+                  if (daysSinceLabel >= thirty_days) {
+                    // Check if a PR is linked
+                    const prReferences = timelineEvents.filter(e =>
+                      e.event === 'cross-referenced' && e.source?.issue?.pull_request
+                    );
+            
+                    if (prReferences.length > 0) {
+                      console.log(`Issue #${issue.number} has linked PR, skipping`);
+                      continue;
                     }
+            
+                    console.log(`Issue #${issue.number} accepted for ${daysSinceLabel.toFixed(4)} days, no PR - closing`);
+            
+                    const assignee = issue.assignee ? `@${issue.assignee.login}` : 'the assignee';
+                    const comment = `Reminder: this issue has been accepted for ${Math.floor(daysSinceLabel)} days without a linked PR. If you are the assignee, please submit a Pull Request to address this issue in the next 3 days. Otherwise, the issue will be reassigned to someone else! \n\nCC: ${assignee}`;
+            
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      body: comment
+                    });
+            
+                    await github.rest.issues.update({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      state: 'closed'
+                    });
+                  }
                 }
+              }
             }
