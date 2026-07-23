@@ -14,8 +14,8 @@ jobs:
           REVIEWERS: "krkn-maintainers"
         with:
           script: |
-            const thirty_days = 0.010;   // TEST ONLY — was 30
-            const fourteen_days = 0.010; // TEST ONLY — was 14
+            const thirty_days = 0.001;   // TEST ONLY — was 30
+            const fourteen_days = 0.001; // TEST ONLY — was 14
             const reviewers = `@${context.repo.owner}/${process.env.REVIEWERS}`;
 
             // Fetch all open issues
