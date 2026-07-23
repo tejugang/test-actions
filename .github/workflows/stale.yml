@@ -1,114 +1,232 @@
-name: Close inactive issues and pull requests
+name: Manage stale issues and PRs
+
 on:
   workflow_call:
 
 jobs:
-  close-issue:
+  stale-check:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      pull-requests: write
+
     steps:
-      - name: Check for maintainer response
+      - name: Check for stale issues and PRs
         uses: actions/github-script@v7
         env:
           REVIEWERS: "krkn-maintainers"
         with:
           script: |
-            const thirty_days = 0.001;   // TEST ONLY — was 30
-            const fourteen_days = 0.001; // TEST ONLY — was 14
+            // Production values (uncomment when done testing):
+            // const STALE_ASSIGNMENT_DAYS = 14;
+            // const GRACE_PERIOD_DAYS = 3;
+            // const STALE_TRIAGE_DAYS = 14;
+            // const STALE_APPROVED_DAYS = 30;
+            // const STALE_PR_DAYS = 14;
+            // const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+            // Testing values (1 minute thresholds):
+            const STALE_ASSIGNMENT_DAYS = 1 / (24 * 60);
+            const GRACE_PERIOD_DAYS = 1 / (24 * 60);
+            const STALE_TRIAGE_DAYS = 1 / (24 * 60);
+            const STALE_APPROVED_DAYS = 1 / (24 * 60);
+            const STALE_PR_DAYS = 1 / (24 * 60);
+
+            const MS_PER_DAY = 24 * 60 * 60 * 1000;
+            const now = Date.now();
             const reviewers = `@${context.repo.owner}/${process.env.REVIEWERS}`;
 
-            // Fetch all open issues
-            const {data: issues} = await github.rest.issues.listForRepo({
+            function daysSince(dateStr) {
+              return (now - new Date(dateStr).getTime()) / MS_PER_DAY;
+            }
+
+            async function hasCommentMarker(issueNumber, marker) {
+              const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                state: 'open',
+                issue_number: issueNumber,
                 per_page: 100
-            });
+              });
+              return comments.some(c => c.body.includes(marker));
+            }
 
-            console.log(`Found ${issues.length} open issues to check`);
+            async function postComment(issueNumber, marker, body) {
+              if (await hasCommentMarker(issueNumber, marker)) {
+                console.log(`Skipping duplicate comment on #${issueNumber} (${marker})`);
+                return;
+              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `<!-- ${marker} -->\n${body}`
+              });
+            }
+
+            // ─── Issues ───
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
 
             for (const issue of issues) {
               if (issue.pull_request) continue;
-            
-              // 1. Check CURRENT active labels on the issue
-              const currentLabels = issue.labels.map(l => l.name);
-              const hasNeedsTriage = currentLabels.includes('needs-triage');
-              const hasTriageAccepted = currentLabels.includes('triage/accepted');
-            
-              // Fetch timeline events for event timestamps
-              const {data: timelineEvents} = await github.rest.issues.listEventsForTimeline({
+
+              const { data: timeline } = await github.rest.issues.listEventsForTimeline({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
                 per_page: 100
               });
-            
-              // --- CASE 1: Issue CURRENTLY needs triage ---
-              if (hasNeedsTriage) {
-                // Get the MOST RECENT time 'needs-triage' was added
-                const needsTriageEvent = timelineEvents
-                  .filter(e => e.event === 'labeled' && e.label?.name === 'needs-triage')
-                  .pop();
-            
-                if (needsTriageEvent) {
-                  const labelAddedAt = new Date(needsTriageEvent.created_at);
-                  const daysSinceLabel = (Date.now() - labelAddedAt) / (24 * 60 * 60 * 1000);
-            
-                  if (daysSinceLabel >= fourteen_days) {
-                    console.log(`Issue #${issue.number} needs triage for ${daysSinceLabel.toFixed(4)} days`);
-                    const comment = `Apologies on the delay! There are many issues awaiting triage. This issue has been waiting for ${Math.floor(daysSinceLabel)} days. Can maintainers please review this issue at their convenience? `;
-                    
-                    await github.rest.issues.createComment({
+
+              const labels = issue.labels.map(l => l.name);
+              const hasLinkedPR = timeline.some(e =>
+                e.event === 'cross-referenced' && e.source?.issue?.pull_request
+              );
+
+              // 1. Stale assignment grace period expired
+              if (labels.includes('stale-assignment')) {
+                const staleEvent = [...timeline].reverse().find(e =>
+                  e.event === 'labeled' && e.label?.name === 'stale-assignment'
+                );
+                if (!staleEvent) continue;
+
+                const daysSinceStale = daysSince(staleEvent.created_at);
+
+                // Check if assignee responded since the label was added
+                const staleTime = new Date(staleEvent.created_at).getTime();
+                const assigneeLogins = issue.assignees.map(a => a.login);
+                const assigneeResponded = timeline.some(e =>
+                  e.event === 'commented' &&
+                  assigneeLogins.includes(e.actor?.login) &&
+                  new Date(e.created_at).getTime() > staleTime
+                );
+
+                if (assigneeResponded) {
+                  // Assignee responded — remove stale-assignment
+                  try {
+                    await github.rest.issues.removeLabel({
                       owner: context.repo.owner,
                       repo: context.repo.repo,
                       issue_number: issue.number,
-                      body: comment
+                      name: 'stale-assignment'
+                    });
+                    console.log(`#${issue.number}: assignee responded, removed stale-assignment`);
+                  } catch (e) {
+                    console.log(`#${issue.number}: error removing stale-assignment: ${e.message}`);
+                  }
+                  continue;
+                }
+
+                if (daysSinceStale >= GRACE_PERIOD_DAYS) {
+                  // Grace period expired — unassign, relabel
+                  for (const assignee of assigneeLogins) {
+                    await github.rest.issues.removeAssignees({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      assignees: [assignee]
                     });
                   }
-                }
-              } 
-              // --- CASE 2: Issue is CURRENTLY accepted ---
-              else if (hasTriageAccepted) {
-                // Get the MOST RECENT time 'triage/accepted' was added
-                const triageAcceptedEvent = timelineEvents
-                  .filter(e => e.event === 'labeled' && e.label?.name === 'triage/accepted')
-                  .pop();
-            
-                if (triageAcceptedEvent) {
-                  const labelAddedAt = new Date(triageAcceptedEvent.created_at);
-                  const daysSinceLabel = (Date.now() - labelAddedAt) / (24 * 60 * 60 * 1000);
-            
-                  if (daysSinceLabel >= thirty_days) {
-                    // Check if a PR is linked
-                    const prReferences = timelineEvents.filter(e =>
-                      e.event === 'cross-referenced' && e.source?.issue?.pull_request
-                    );
-            
-                    if (prReferences.length > 0) {
-                      console.log(`Issue #${issue.number} has linked PR, skipping`);
-                      continue;
-                    }
-            
-                    console.log(`Issue #${issue.number} accepted for ${daysSinceLabel.toFixed(4)} days, no PR - closing`);
-            
-                    const assignee = issue.assignee ? `@${issue.assignee.login}` : 'the assignee';
-                    const comment = `Reminder: this issue has been accepted for ${Math.floor(daysSinceLabel)} days without a linked PR. If you are the assignee, please submit a Pull Request to address this issue in the next 3 days. Otherwise, the issue will be reassigned to someone else! \n\nCC: ${assignee}`;
-            
-                    await github.rest.issues.createComment({
+
+                  try {
+                    await github.rest.issues.removeLabel({
                       owner: context.repo.owner,
                       repo: context.repo.repo,
                       issue_number: issue.number,
-                      body: comment
+                      name: 'stale-assignment'
                     });
-            
-                    await github.rest.issues.update({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: issue.number,
-                      state: 'closed'
-                    });
+                  } catch (e) {
+                    console.log(`#${issue.number}: error removing stale-assignment: ${e.message}`);
                   }
+
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    labels: ['help-wanted']
+                  });
+
+                  await postComment(issue.number, 'stale-assignment-expired',
+                    `You have been unassigned due to inactivity. This issue is now open for other contributors — feel free to claim it!`
+                  );
+
+                  console.log(`#${issue.number}: grace period expired, unassigned and added help-wanted`);
                 }
+                continue;
+              }
+
+              // 2. Stale assignment — assigned + triage/accepted, no PR after threshold
+              if (labels.includes('triage/accepted') && issue.assignees.length > 0 && !hasLinkedPR) {
+                const assignEvent = [...timeline].reverse().find(e =>
+                  e.event === 'assigned' && issue.assignees.some(a => a.login === e.assignee?.login)
+                );
+                if (assignEvent && daysSince(assignEvent.created_at) >= STALE_ASSIGNMENT_DAYS) {
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    labels: ['stale-assignment']
+                  });
+
+                  const assignee = `@${issue.assignees[0].login}`;
+                  await postComment(issue.number, 'stale-assignment-reminder',
+                    `Hi ${assignee}, it's been ${STALE_ASSIGNMENT_DAYS} days since you were assigned to this issue and no PR has been submitted. Are you still working on this? Please respond within ${GRACE_PERIOD_DAYS} days, otherwise you'll be unassigned so others can pick it up.`
+                  );
+
+                  console.log(`#${issue.number}: stale assignment, reminded ${assignee}`);
+                }
+                continue;
+              }
+
+              // 3. Stale triage — needs-triage for threshold days
+              if (labels.includes('needs-triage')) {
+                const triageEvent = timeline.find(e =>
+                  e.event === 'labeled' && e.label?.name === 'needs-triage'
+                );
+                if (triageEvent && daysSince(triageEvent.created_at) >= STALE_TRIAGE_DAYS) {
+                  await postComment(issue.number, 'stale-triage-reminder',
+                    `Reminder: this issue has been awaiting triage for ${Math.floor(daysSince(triageEvent.created_at))} days. ${reviewers} could you please review when you get a chance?`
+                  );
+                  console.log(`#${issue.number}: stale triage reminder`);
+                }
+                continue;
+              }
+
+              // 4. Stale approved issue — triage/accepted, no PR, no assignee
+              if (labels.includes('triage/accepted') && issue.assignees.length === 0 && !hasLinkedPR) {
+                const acceptedEvent = timeline.find(e =>
+                  e.event === 'labeled' && e.label?.name === 'triage/accepted'
+                );
+                if (acceptedEvent && daysSince(acceptedEvent.created_at) >= STALE_APPROVED_DAYS) {
+                  await postComment(issue.number, 'stale-approved-reminder',
+                    `This issue has been approved but no PR has been submitted in ${Math.floor(daysSince(acceptedEvent.created_at))} days. It is still open for contributors — feel free to pick it up!`
+                  );
+                  console.log(`#${issue.number}: stale approved issue reminder`);
+                }
+              }
+            }
+
+            // ─── Pull Requests ───
+
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            for (const pr of prs) {
+              const daysSinceUpdate = daysSince(pr.updated_at);
+
+              if (daysSinceUpdate >= STALE_PR_DAYS) {
+                const contributor = `@${pr.user.login}`;
+                await postComment(pr.number, 'stale-pr-reminder',
+                  `Hi ${contributor}, this PR has been waiting for updates for ${Math.floor(daysSinceUpdate)} days. Please respond or push changes within 7 days, otherwise this PR will be closed. Feel free to reopen when you're ready to continue.`
+                );
+                console.log(`PR #${pr.number}: stale, reminded ${contributor}`);
               }
             }
